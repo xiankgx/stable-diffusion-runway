@@ -97,14 +97,15 @@ Stable Diffusion v1 is a latent diffusion model which combines an autoencoder wi
 
 We currently provide the following checkpoints:
 
-- `sd-v1-1.ckpt`: 237k steps at resolution `256x256` on [laion2B-en](https://huggingface.co/datasets/laion/laion2B-en).
+- [`sd-v1-1.ckpt`](https://huggingface.co/compvis): 237k steps at resolution `256x256` on [laion2B-en](https://huggingface.co/datasets/laion/laion2B-en).
   194k steps at resolution `512x512` on [laion-high-resolution](https://huggingface.co/datasets/laion/laion-high-resolution) (170M examples from LAION-5B with resolution `>= 1024x1024`).
-- `sd-v1-2.ckpt`: Resumed from `sd-v1-1.ckpt`.
+- [`sd-v1-2.ckpt`](https://huggingface.co/compvis): Resumed from `sd-v1-1.ckpt`.
   515k steps at resolution `512x512` on [laion-aesthetics v2 5+](https://laion.ai/blog/laion-aesthetics/) (a subset of laion2B-en with estimated aesthetics score `> 5.0`, and additionally
 filtered to images with an original size `>= 512x512`, and an estimated watermark probability `< 0.5`. The watermark estimate is from the [LAION-5B](https://laion.ai/blog/laion-5b/) metadata, the aesthetics score is estimated using the [LAION-Aesthetics Predictor V2](https://github.com/christophschuhmann/improved-aesthetic-predictor)).
-- `sd-v1-3.ckpt`: Resumed from `sd-v1-2.ckpt`. 195k steps at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598).
-- `sd-v1-4.ckpt`: Resumed from `sd-v1-2.ckpt`. 225k steps at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598).
-- `sd-v1-5-inpainting.ckpt`: Resumed from `sd-v1-2.ckpt`. First 595k steps regular training, then 440k steps of inpainting training at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598). For inpainting, the UNet has 5 additional input channels (4 for the encoded masked-image and 1 for the mask itself) whose weights were zero-initialized after restoring the non-inpainting checkpoint. During training, we generate synthetic masks and in 25\% mask everything.
+- [`sd-v1-3.ckpt`](https://huggingface.co/compvis): Resumed from `sd-v1-2.ckpt`. 195k steps at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598).
+- [`sd-v1-4.ckpt`](https://huggingface.co/compvis): Resumed from `sd-v1-2.ckpt`. 225k steps at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598).
+- [`sd-v1-5.ckpt`](https://huggingface.co/runwayml/stable-diffusion-v1-5): Resumed from `sd-v1-2.ckpt`. 595k steps at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598).
+- [`sd-v1-5-inpainting.ckpt`](https://huggingface.co/runwayml/stable-diffusion-inpainting): Resumed from `sd-v1-5.ckpt`. 440k steps of inpainting training at resolution `512x512` on "laion-aesthetics v2 5+" and 10\% dropping of the text-conditioning to improve [classifier-free guidance sampling](https://arxiv.org/abs/2207.12598). For inpainting, the UNet has 5 additional input channels (4 for the encoded masked-image and 1 for the mask itself) whose weights were zero-initialized after restoring the non-inpainting checkpoint. During training, we generate synthetic masks and in 25\% mask everything.
 
 - **Hardware:** 32 x 8 x A100 GPUs
 - **Optimizer:** AdamW
@@ -113,6 +114,8 @@ filtered to images with an original size `>= 512x512`, and an estimated watermar
 - **Learning rate:** warmup to 0.0001 for 10,000 steps and then kept constant
 
 ## Evaluation Results 
+
+### Text-to-Image
 Evaluations with different classifier-free guidance scales (1.5, 2.0, 3.0, 4.0,
 5.0, 6.0, 7.0, 8.0) and 50 PLMS sampling
 steps show the relative improvements of the checkpoints:
@@ -120,6 +123,19 @@ steps show the relative improvements of the checkpoints:
 ![pareto](assets/v1-1-to-v1-5.png) 
 
 Evaluated using 50 PLMS steps and 10000 random prompts from the COCO2017 validation set, evaluated at 512x512 resolution.  Not optimized for FID scores.
+
+### Text Guided Inpainting
+To assess the performance of the inpainting model, we used the same evaluation
+protocol as in our [LDM paper](https://arxiv.org/abs/2112.10752). Since the
+Stable Diffusion Inpainting Model acccepts a text input, we simply used a fixed
+prompt of `photograph of a beautiful empty scene, highest quality settings`.
+
+| Model                       | FID  | LPIPS            |
+|-----------------------------|------|------------------|
+| Stable Diffusion Inpainting | 1.00 | 0.141 (+- 0.082) |
+| Latent Diffusion Inpainting | 1.50 | 0.137 (+- 0.080) |
+| CoModGAN                    | 1.82 | 0.15             |
+| LaMa                        | 2.21 | 0.134 (+- 0.080) |
 
 ## Environmental Impact
 
