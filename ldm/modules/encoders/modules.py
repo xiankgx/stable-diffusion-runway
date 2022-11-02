@@ -1,12 +1,14 @@
+from functools import partial
+
+import clip
+import kornia
 import torch
 import torch.nn as nn
-from functools import partial
-import clip
 from einops import rearrange, repeat
-from transformers import CLIPTokenizer, CLIPTextModel
-import kornia
-
-from ldm.modules.x_transformer import Encoder, TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
+from facenet_pytorch import InceptionResnetV1
+# TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
+from ldm.modules.x_transformer import Encoder, TransformerWrapper
+from transformers import CLIPTextModel, CLIPTokenizer
 
 
 class AbstractEncoder(nn.Module):
@@ -15,7 +17,6 @@ class AbstractEncoder(nn.Module):
 
     def encode(self, *args, **kwargs):
         raise NotImplementedError
-
 
 
 class ClassEmbedder(nn.Module):
@@ -35,6 +36,7 @@ class ClassEmbedder(nn.Module):
 
 class TransformerEmbedder(AbstractEncoder):
     """Some transformer encoder layers"""
+
     def __init__(self, n_embed, n_layer, vocab_size, max_seq_len=77, device="cuda"):
         super().__init__()
         self.device = device
@@ -52,9 +54,11 @@ class TransformerEmbedder(AbstractEncoder):
 
 class BERTTokenizer(AbstractEncoder):
     """ Uses a pretrained BERT tokenizer by huggingface. Vocab size: 30522 (?)"""
+
     def __init__(self, device="cuda", vq_interface=True, max_length=77):
         super().__init__()
-        from transformers import BertTokenizerFast  # TODO: add to reuquirements
+        from transformers import \
+            BertTokenizerFast  # TODO: add to reuquirements
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.device = device
         self.vq_interface = vq_interface
@@ -79,20 +83,23 @@ class BERTTokenizer(AbstractEncoder):
 
 class BERTEmbedder(AbstractEncoder):
     """Uses the BERT tokenizr model and add some transformer encoder layers"""
+
     def __init__(self, n_embed, n_layer, vocab_size=30522, max_seq_len=77,
-                 device="cuda",use_tokenizer=True, embedding_dropout=0.0):
+                 device="cuda", use_tokenizer=True, embedding_dropout=0.0):
         super().__init__()
         self.use_tknz_fn = use_tokenizer
         if self.use_tknz_fn:
-            self.tknz_fn = BERTTokenizer(vq_interface=False, max_length=max_seq_len)
+            self.tknz_fn = BERTTokenizer(
+                vq_interface=False, max_length=max_seq_len)
         self.device = device
         self.transformer = TransformerWrapper(num_tokens=vocab_size, max_seq_len=max_seq_len,
-                                              attn_layers=Encoder(dim=n_embed, depth=n_layer),
+                                              attn_layers=Encoder(
+                                                  dim=n_embed, depth=n_layer),
                                               emb_dropout=embedding_dropout)
 
     def forward(self, text):
         if self.use_tknz_fn:
-            tokens = self.tknz_fn(text)#.to(self.device)
+            tokens = self.tknz_fn(text)  # .to(self.device)
         else:
             tokens = text
         z = self.transformer(tokens, return_embeddings=True)
@@ -114,18 +121,21 @@ class SpatialRescaler(nn.Module):
         super().__init__()
         self.n_stages = n_stages
         assert self.n_stages >= 0
-        assert method in ['nearest','linear','bilinear','trilinear','bicubic','area']
+        assert method in ['nearest', 'linear',
+                          'bilinear', 'trilinear', 'bicubic', 'area']
         self.multiplier = multiplier
-        self.interpolator = partial(torch.nn.functional.interpolate, mode=method)
+        self.interpolator = partial(
+            torch.nn.functional.interpolate, mode=method)
         self.remap_output = out_channels is not None
         if self.remap_output:
-            print(f'Spatial Rescaler mapping from {in_channels} to {out_channels} channels after resizing.')
-            self.channel_mapper = nn.Conv2d(in_channels,out_channels,1,bias=bias)
+            print(
+                f'Spatial Rescaler mapping from {in_channels} to {out_channels} channels after resizing.')
+            self.channel_mapper = nn.Conv2d(
+                in_channels, out_channels, 1, bias=bias)
 
-    def forward(self,x):
+    def forward(self, x):
         for stage in range(self.n_stages):
             x = self.interpolator(x, scale_factor=self.multiplier)
-
 
         if self.remap_output:
             x = self.channel_mapper(x)
@@ -134,8 +144,10 @@ class SpatialRescaler(nn.Module):
     def encode(self, x):
         return self(x)
 
+
 class FrozenCLIPEmbedder(AbstractEncoder):
     """Uses the CLIP transformer encoder for text (from Hugging Face)"""
+
     def __init__(self, version="openai/clip-vit-large-patch14", device="cuda", max_length=77):
         super().__init__()
         self.tokenizer = CLIPTokenizer.from_pretrained(version)
@@ -166,6 +178,7 @@ class FrozenCLIPTextEmbedder(nn.Module):
     """
     Uses the CLIP transformer encoder for text.
     """
+
     def __init__(self, version='ViT-L/14', device="cuda", max_length=77, n_repeat=1, normalize=True):
         super().__init__()
         self.model, _ = clip.load(version, jit=False, device="cpu")
@@ -188,7 +201,7 @@ class FrozenCLIPTextEmbedder(nn.Module):
 
     def encode(self, text):
         z = self(text)
-        if z.ndim==2:
+        if z.ndim == 2:
             z = z[:, None, :]
         z = repeat(z, 'b 1 d -> b k d', k=self.n_repeat)
         return z
@@ -196,36 +209,75 @@ class FrozenCLIPTextEmbedder(nn.Module):
 
 class FrozenClipImageEmbedder(nn.Module):
     """
-        Uses the CLIP image encoder.
-        """
+    Uses the CLIP image encoder.
+    """
+
     def __init__(
-            self,
-            model,
-            jit=False,
-            device='cuda' if torch.cuda.is_available() else 'cpu',
-            antialias=False,
-        ):
+        self,
+        model,
+        jit=False,
+        device='cpu',
+        antialias=False,
+    ):
         super().__init__()
-        self.model, _ = clip.load(name=model, device=device, jit=jit)
+        self.model_name = model
+        _clip, _ = clip.load(name=model, device=device, jit=jit)
+        self.model = _clip.visual
 
         self.antialias = antialias
 
-        self.register_buffer('mean', torch.Tensor([0.48145466, 0.4578275, 0.40821073]), persistent=False)
-        self.register_buffer('std', torch.Tensor([0.26862954, 0.26130258, 0.27577711]), persistent=False)
+        self.register_buffer('mean', torch.Tensor(
+            [0.48145466, 0.4578275, 0.40821073]),
+            persistent=False
+        )
+        self.register_buffer('std', torch.Tensor(
+            [0.26862954, 0.26130258, 0.27577711]),
+            persistent=False
+        )
+
+        self.img_size = (224, 224)
+        if self.model_name == "ViT-L/14@336px":
+            self.img_size = (336, 336)
 
     def preprocess(self, x):
-        # normalize to [0,1]
-        x = kornia.geometry.resize(x, (224, 224),
-                                   interpolation='bicubic',align_corners=True,
+        x = kornia.geometry.resize(x, self.img_size,
+                                   interpolation='bicubic', align_corners=True,
                                    antialias=self.antialias)
+        # inverse normalize to [0, 1] from [-1, 1]
         x = (x + 1.) / 2.
         # renormalize according to clip
         x = kornia.enhance.normalize(x, self.mean, self.std)
         return x
 
     def forward(self, x):
-        # x is assumed to be in range [-1,1]
-        return self.model.encode_image(self.preprocess(x))
+        # x is assumed to be in range [-1, 1]
+        # unsqueeze(1) to create sequence/time dimension
+        return self.model(self.preprocess(x)).unsqueeze(1)
+
+
+class FacenetPyTorchImageEmbedder(nn.Module):
+    """
+    facenet_pytorch's InceptionResnetV1 feature extractor
+
+    Ref: https://github.com/timesler/facenet-pytorch
+    """
+
+    def __init__(self, pretrained="vggface2"):
+        super().__init__()
+        self.pretrained = pretrained
+        self.model = InceptionResnetV1(pretrained)
+        self.img_size = (160, 160)
+
+    def preprocess(self, x):
+        x = kornia.geometry.resize(x, self.img_size,
+                                   interpolation='bicubic', align_corners=True,
+                                   antialias=True)
+        return x
+
+    def forward(self, x):
+        # x is assumed to be in range [-1, 1]
+        # unsqueeze(1) to create sequence/time dimension
+        return self.model(self.preprocess(x)).unsqueeze(1)
 
 
 if __name__ == "__main__":
