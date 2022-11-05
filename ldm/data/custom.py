@@ -9,6 +9,8 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms
 
+import braceexpand
+
 Image.MAX_IMAGE_PIXELS = None
 
 
@@ -118,7 +120,7 @@ class ImageCaptioningDataset(Dataset):
         return data
 
 
-class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
+class WebdatasetImageCaptionDataset(IterableDataset):
 
     def __init__(
         self,
@@ -126,8 +128,7 @@ class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
         urls,
         shuffle=1000,
 
-        num_records=0,
-        valid_ids=None,
+        num_records=None,
 
         size=256,
 
@@ -136,13 +137,29 @@ class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
         random_crop=True,
         random_crop_scale=(0.5, 1.0)
     ):
+        urls = list(map(lambda p: braceexpand.braceexpand(p), urls))
+        urls = [el for l in urls for el in l]
+
         self.urls = urls
         self.shuffle = shuffle
 
         self.num_records = num_records
-        self.valid_ids = valid_ids
-        self.sample_ids = valid_ids
-        print(f'{self.__class__.__name__} dataset contains {self.__len__()} examples.')
+        # self.valid_ids = valid_ids
+        # self.sample_ids = valid_ids
+        # print(f'{self.__class__.__name__} dataset contains {self.__len__()} examples.')
+
+        ds = wds.WebDataset(
+            self.urls,
+            # nodesplitter=wds.split_by_node,
+            shardshuffle=True,
+            handler=wds.handlers.warn_and_continue,
+            verbose=True
+        )
+        if self.shuffle:
+            ds = ds.shuffle(self.shuffle)
+        ds = ds.decode("pil")
+        ds = ds.map(self.transform)
+        self.ds = ds
 
         self.size = size
 
@@ -151,7 +168,9 @@ class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
         self.random_crop_scale = random_crop_scale
 
     def __len__(self):
-        return self.num_records
+        if self.num_records is not None:
+            return self.num_records
+        return len(self.urls) * 10_000
 
     def transform(self, d):
         # Get data
@@ -189,17 +208,7 @@ class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
         }
 
     def __iter__(self):
-        ds = wds.WebDataset(
-            self.urls,
-            nodesplitter=wds.split_by_node,
-            handler=wds.handlers.warn_and_continue,
-            verbose=True
-        )
-        if self.shuffle:
-            ds = ds.shuffle(self.shuffle)
-        ds = ds.decode("pil")
-        ds = ds.map(self.transform)
-        return iter(ds)
+        return iter(self.ds)
 
 
 def generate_rectangular_mask(im_size, min_height=0.25, max_height=0.5, min_width=0.25, max_width=0.5, channels=1, invert_mask=True):

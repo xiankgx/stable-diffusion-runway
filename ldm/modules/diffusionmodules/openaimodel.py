@@ -539,6 +539,7 @@ class UNetModel(nn.Module):
                 ]
                 ch = mult * model_channels
                 if ds in attention_resolutions:
+                    print(f"Adding attention block at encoder attention resolution: {ds}")
                     if num_head_channels == -1:
                         dim_head = ch // num_heads
                     else:
@@ -640,6 +641,7 @@ class UNetModel(nn.Module):
                 ]
                 ch = model_channels * mult
                 if ds in attention_resolutions:
+                    print(f"Adding attention block at decoder attention resolution: {ds}")
                     if num_head_channels == -1:
                         dim_head = ch // num_heads
                     else:

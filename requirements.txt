@@ -23,4 +23,5 @@ datasets[vision]==2.4.0
 facenet-pytorch
 -e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
 -e git+https://github.com/openai/CLIP.git@main#egg=clip
+wandb
 # -e .

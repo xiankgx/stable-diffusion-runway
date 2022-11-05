@@ -18,7 +18,11 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 from pytorch_lightning.utilities import rank_zero_info
 
 from ldm.data.base import Txt2ImgIterableBaseDataset
+from ldm.data.custom import WebdatasetImageCaptionDataset
 from ldm.util import instantiate_from_config
+
+import braceexpand
+import wandb
 
 
 def get_parser(**parser_kwargs):
@@ -148,8 +152,30 @@ def worker_init_fn(_):
 
     dataset = worker_info.dataset
     worker_id = worker_info.id
+    
+    # if isinstance(dataset, WebdatasetImageCaptionDataset):
+    #     print(f"worker_id: {worker_id}")
 
-    if isinstance(dataset, Txt2ImgIterableBaseDataset):
+    #     urls = list(map(lambda p: braceexpand.braceexpand(p), dataset.urls))
+    #     urls = [el for l in urls for el in l]
+    #     print(f"Num urls: {len(urls)}")
+
+    #     worker_urls = urls[worker_id::worker_info.num_workers]
+    #     print(f"Num worker_urls: {len(worker_urls)}")
+
+    #     # Replace the urls to use for each worker
+    #     dataset.urls = worker_urls
+
+    #     current_id = np.random.choice(len(np.random.get_state()[1]), 1)
+    #     print(f"current_id: {current_id}")
+
+    #     seed = np.random.get_state()[1][current_id] + worker_id
+    #     print(f"seed: {seed}")
+    #     return np.random.seed(seed)
+    if isinstance(dataset, WebdatasetImageCaptionDataset):
+        pass
+
+    elif isinstance(dataset, Txt2ImgIterableBaseDataset):
         split_size = dataset.num_records // worker_info.num_workers
         # reset num_records to the true number to retain reliable length information
         dataset.sample_ids = dataset.valid_ids[worker_id * split_size:(worker_id + 1) * split_size]
@@ -296,6 +322,7 @@ class ImageLogger(Callback):
         self.max_images = max_images
         self.logger_log_images = {
             pl.loggers.TestTubeLogger: self._testtube,
+            pl.loggers.WandbLogger: self._wandb
         }
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
@@ -305,6 +332,18 @@ class ImageLogger(Callback):
         self.log_on_batch_idx = log_on_batch_idx
         self.log_images_kwargs = log_images_kwargs if log_images_kwargs else {}
         self.log_first_step = log_first_step
+
+    @rank_zero_only
+    def _wandb(self, pl_module, images, batch_idx, split):
+        for k in images:
+            grid = torchvision.utils.make_grid(images[k])
+            grid = (grid + 1.0) / 2.0  # -1,1 -> 0,1; c,h,w
+
+            tag = f"{split}/{k}"
+
+            pl_module.logger.experiment.log({
+                tag: wandb.Image(grid),
+            }, step=pl_module.global_step)
 
     @rank_zero_only
     def _testtube(self, pl_module, images, batch_idx, split):

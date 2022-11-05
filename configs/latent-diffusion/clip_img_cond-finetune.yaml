@@ -1,5 +1,5 @@
 model:
-  base_learning_rate: 1.0e-06
+  base_learning_rate: 1.0e-05
   target: ldm.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.00085
@@ -16,7 +16,7 @@ model:
     monitor: val/loss_simple_ema
     scale_factor: 0.18215
     use_ema: False
-    # ckpt_path: models/ldm/text2img-large/model.ckpt
+    ckpt_path: models/ldm/text2img-large/model.ckpt
 
     scheduler_config: # 10000 warmup steps
       target: ldm.lr_scheduler.LambdaLinearScheduler
@@ -67,7 +67,7 @@ model:
           dropout: 0.0
         lossconfig:
           target: torch.nn.Identity
-        # Note: extract first state autoencoder model using notebooks/extract_model_state_dict.ipynb
+        # Note: extract first stage autoencoder model using notebooks/extract_model_state_dict.ipynb
         # Comment if not restoring from checkpoint.
         # ckpt_path: checkpoints/stable-diffusion-v-1-4-original/sd-v1-4-first_stage.ckpt
 
@@ -91,18 +91,29 @@ data:
     batch_size: 6
     wrap: False
 
+    # train:
+    #   target: ldm.data.custom.ImageCaptioningDataset
+    #   params:
+    #     annotations_csv_file: null
+    #     # image_root: ../datasets/stickers
+    #     # image_root: ../datasets/ffhq_dataset
+    #     image_root: ../datasets/stickers
+    #     repeats: 1
+    #     size: 256
+    #     hflip: False
+    #     random_crop: True
+    #     random_crop_scale: [0.9, 1.0]
+
     train:
-      target: ldm.data.custom.ImageCaptioningDataset
+      target: ldm.data.custom.WebdatasetImageCaptionDataset
       params:
-        annotations_csv_file: null
-        # image_root: ../datasets/stickers
-        # image_root: ../datasets/ffhq_dataset
-        image_root: ../datasets/stickers
-        repeats: 1
+        urls: "/data/123rf_vectors_43m_no_resize/{00000..04359}.tar"
+        num_records: 43590000
+        valid_ids: [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
         size: 256
         hflip: False
         random_crop: True
-        random_crop_scale: [0.9, 1.0]
+        random_crop_scale: [0.5, 1.0]
 
 lightning:
   callbacks:

@@ -188,6 +188,8 @@ class DDPM(pl.LightningModule):
 
     @torch.no_grad()
     def init_from_ckpt(self, path, ignore_keys=list(), only_model=False):
+        print(f"Restoring model from path: {path}")
+
         sd = torch.load(path, map_location="cpu")
         if "state_dict" in list(sd.keys()):
             sd = sd["state_dict"]
@@ -197,7 +199,13 @@ class DDPM(pl.LightningModule):
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        if True:
+
+        try:
+            missing, unexpected = self.load_state_dict(sd, strict=False) if not only_model else self.model.load_state_dict(
+                sd, strict=False)
+        except Exception as e:
+            print(str(e))
+
             n_params = len([name for name, _ in
                             itertools.chain(self.named_parameters(),
                                             self.named_buffers())])
@@ -241,8 +249,9 @@ class DDPM(pl.LightningModule):
 
                     sd[name] = new_param
 
-        missing, unexpected = self.load_state_dict(sd, strict=False) if not only_model else self.model.load_state_dict(
-            sd, strict=False)
+            missing, unexpected = self.load_state_dict(sd, strict=False) if not only_model else self.model.load_state_dict(
+                sd, strict=False)
+
         print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
         if len(missing) > 0:
             print(f"Missing Keys: {missing}")
