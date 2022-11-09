@@ -265,7 +265,13 @@ class FacenetPyTorchImageEmbedder(nn.Module):
     def __init__(self, pretrained="vggface2"):
         super().__init__()
         self.pretrained = pretrained
-        self.model = InceptionResnetV1(pretrained)
+        if pretrained == "vggface2+casia-webface":
+            self.models = nn.ModuleList([
+                InceptionResnetV1("vggface2"),
+                InceptionResnetV1("casia-webface")
+            ])
+        else:
+            self.model = InceptionResnetV1(pretrained)
         self.img_size = (160, 160)
 
     def preprocess(self, x):
@@ -277,6 +283,16 @@ class FacenetPyTorchImageEmbedder(nn.Module):
     def forward(self, x):
         # x is assumed to be in range [-1, 1]
         # unsqueeze(1) to create sequence/time dimension
+        if hasattr(self, "models"):
+            outputs = []
+            for m in self.models:
+                outputs.append(
+                    m(self.preprocess(x))
+                )
+            res = torch.cat(outputs, dim=-1).unsqueeze(1)
+            assert res.ndim == 3
+            assert res.size(-1) == 1024
+            return res
         return self.model(self.preprocess(x)).unsqueeze(1)
 
 

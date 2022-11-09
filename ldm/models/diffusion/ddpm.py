@@ -28,6 +28,7 @@ from ldm.models.autoencoder import VQModelInterface, IdentityFirstStage, Autoenc
 from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
 from ldm.models.diffusion.ddim import DDIMSampler
 
+from ldm.data.custom import generate_circular_mask, generate_rectangular_mask
 
 __conditioning_keys__ = {'concat': 'c_concat',
                          'crossattn': 'c_crossattn',
@@ -1405,11 +1406,23 @@ class LatentDiffusion(DDPM):
 
             if inpaint:
                 # make a simple center square
-                b, h, w = z.shape[0], z.shape[2], z.shape[3]
-                mask = torch.ones(N, h, w).to(self.device)
-                # zeros will be filled in
-                mask[:, h // 4:3 * h // 4, w // 4:3 * w // 4] = 0.
-                mask = mask[:, None, ...]
+                # b, h, w = z.shape[0], z.shape[2], z.shape[3]
+                # mask = torch.ones(N, h, w).to(self.device)
+                # # zeros will be filled in
+                # mask[:, h // 4:3 * h // 4, w // 4:3 * w // 4] = 0.
+                # mask = mask[:, None, ...]
+
+                b = z.shape[0]
+                mask = [
+                    (generate_circular_mask((self.image_size, self.image_size), min_radius=0.125, max_radius=0.5, x=0.5, y=0.5) if np.random.rand() < 0.5
+                    else generate_rectangular_mask((self.image_size, self.image_size), min_height=0.25, max_height=0.9, min_width=0.25, max_width=0.9, x=0.5, y=0.5, center=True))
+                    for _ in range(b)
+                ]
+                mask = np.stack(mask, axis=0)
+                mask = torch.from_numpy(mask).to(self.device)
+                mask = mask.permute(0, 3, 1, 2)
+                mask = torch.nn.functional.interpolate(mask, (z.shape[2], z.shape[3]))
+
                 with self.ema_scope("Plotting Inpaint"):
 
                     samples, _ = self.sample_log(cond=c,batch_size=N,ddim=use_ddim, eta=ddim_eta,
@@ -1417,6 +1430,8 @@ class LatentDiffusion(DDPM):
                 x_samples = self.decode_first_stage(samples.to(self.device))
                 log["samples_inpainting"] = x_samples
                 log["mask"] = mask
+
+                mask = 1 - mask
 
                 # outpaint
                 with self.ema_scope("Plotting Outpaint"):
@@ -1569,6 +1584,13 @@ class LatentInpaintDiffusion(LatentDiffusion):
             return_original_cond=True,
             bs=bs,
         )
+
+        # classifier free guidance drop probability
+        # c = torch.where(
+        #     torch.rand(c.size(0), 1, 1).to(self.device) < 0.1,
+        #     torch.zeros_like(c),
+        #     c
+        # )
 
         assert exists(self.concat_keys)
         c_cat = list()

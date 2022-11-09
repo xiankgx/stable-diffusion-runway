@@ -10,6 +10,8 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms
 
 import braceexpand
+import cv2
+import random
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -93,30 +95,33 @@ class ImageCaptioningDataset(Dataset):
         # Output image in np.ndarray format
         img = np.asarray(img)
 
-        # Normalize: [0, 255] -> [-1, 1]
-        img = (img/np.float32(255) - 0.5) * 2
-
-        data = {
-            "image": img,
-            "caption": caption
-        }
+        data = {}
 
         if self.inpaint_task:
             # Full 0 mask by default to make model predict everything
             mask = np.zeros(list(img.shape[:2]) + [1, ], dtype=np.float32)
 
             # With some probability, generate some random mask
-            if np.random.rand() < 0.2:
-                if np.random.rand() < 0.5:
-                    mask = generate_circular_mask(img.shape[:2])
+            if np.random.rand() < 0.8:
+                if np.random.rand() < 0.35:
+                    mask = generate_rectangular_mask(
+                        (256, 256), min_height=0.25, max_height=0.9, min_width=0.25, max_width=0.9, x=0.5, y=0.5, center=True)
+                elif np.random.rand() < 0.7:
+                    mask = generate_circular_mask(
+                        (256, 256), min_radius=0.125, max_radius=0.5, x=0.5, y=0.5)
                 else:
-                    mask = generate_rectangular_mask(img.shape[:2])
+                    mask = generate_stroke_mask((256, 256))
 
             masked_image = mask * img
 
+            # data["mask"] = (mask - 0.5) * 2
             data["mask"] = mask
-            data["masked_image"] = masked_image
-        
+            data["masked_image"] = (masked_image/np.float32(255) - 0.5) * 2
+
+        # Normalize: [0, 255] -> [-1, 1]
+        data["image"] = (img/np.float32(255) - 0.5) * 2
+        data["caption"] = caption
+
         return data
 
 
@@ -211,7 +216,7 @@ class WebdatasetImageCaptionDataset(IterableDataset):
         return iter(self.ds)
 
 
-def generate_rectangular_mask(im_size, min_height=0.25, max_height=0.5, min_width=0.25, max_width=0.5, channels=1, invert_mask=True):
+def generate_rectangular_mask(im_size, min_height=0.25, max_height=0.5, min_width=0.25, max_width=0.5, channels=1, invert_mask=True, y=None, x=None, center=False):
     """Getnerate rectangular mask."""
     mask = np.zeros((im_size[0], im_size[1]), dtype=np.float32)
 
@@ -226,16 +231,26 @@ def generate_rectangular_mask(im_size, min_height=0.25, max_height=0.5, min_widt
 
     h = np.random.randint(min_height, max_height)
     w = np.random.randint(min_width, max_width)
-    y = np.random.randint(0, im_size[0] - h)
-    x = np.random.randint(0, im_size[1] - w)
-    mask[y:y+h, x:x+w] = 1.0
+    if y is None:
+        y = np.random.randint(0, im_size[0] - h)
+    else:
+        y = int(y * im_size[0])
+    if x is None:
+        x = np.random.randint(0, im_size[1] - w)
+    else:
+        x = int(x * im_size[1])
+    # print(f"x: {x}, y: {y}")
+    if center:
+        mask[y - h//2:y + (h - h//2), x - w//2: x + (w - w//2)] = 1.0
+    else:
+        mask[y:y+h, x:x+w] = 1.0
     mask = np.stack([mask, ] * channels, axis=-1)
     if invert_mask:
         return 1 - mask
     return mask
 
 
-def generate_circular_mask(im_size, min_radius=0.125, max_radius=0.25, channels=1, invert_mask=True):
+def generate_circular_mask(im_size, min_radius=0.125, max_radius=0.25, channels=1, invert_mask=True, y=None, x=None):
     """Generate circular mask."""
     mask = np.zeros((im_size[0], im_size[1]), dtype=np.float32)
 
@@ -249,8 +264,14 @@ def generate_circular_mask(im_size, min_radius=0.125, max_radius=0.25, channels=
         max_radius = int(max_radius * min_size)
 
     # Generate circle center coordinate and radius
-    cy = np.random.randint(0, im_size[0])
-    cx = np.random.randint(0, im_size[1])
+    if y is None:
+        cy = np.random.randint(0, im_size[0])
+    else:
+        cy = int(y * im_size[0])
+    if x is None:
+        cx = np.random.randint(0, im_size[1])
+    else:
+        cx = int(x * im_size[1])
     r = np.random.randint(min_radius, max_radius)
 
     # Compute selection mask based on Euclidean distance to circle center
@@ -263,4 +284,39 @@ def generate_circular_mask(im_size, min_radius=0.125, max_radius=0.25, channels=
     mask = np.stack([mask, ] * channels, axis=-1)
     if invert_mask:
         return 1 - mask
+    return mask
+
+
+def generate_stroke_mask(im_size, max_parts=15, maxVertex=25, maxLength=100, maxBrushWidth=24 * 2, maxAngle=360, channels=1):
+    mask = np.zeros((im_size[0], im_size[1], 1), dtype=np.float32)
+    parts = random.randint(1, max_parts)
+    for i in range(parts):
+        mask = mask + np_free_form_mask(maxVertex, maxLength,
+                                        maxBrushWidth, maxAngle, im_size[0], im_size[1])
+    mask = np.minimum(mask, 1.0)
+    mask = np.concatenate([mask, ] * channels, axis=2)
+    return mask
+
+
+def np_free_form_mask(maxVertex, maxLength, maxBrushWidth, maxAngle, h, w):
+    mask = np.zeros((h, w, 1), np.float32)
+    numVertex = np.random.randint(maxVertex + 1)
+    startY = np.random.randint(h)
+    startX = np.random.randint(w)
+    brushWidth = 0
+    for i in range(numVertex):
+        angle = np.random.randint(maxAngle + 1)
+        angle = angle / 360.0 * 2 * np.pi
+        if i % 2 == 0:
+            angle = 2 * np.pi - angle
+        length = np.random.randint(maxLength + 1)
+        brushWidth = np.random.randint(10, maxBrushWidth + 1) // 2 * 2
+        nextY = startY + length * np.cos(angle)
+        nextX = startX + length * np.sin(angle)
+        nextY = np.maximum(np.minimum(nextY, h - 1), 0).astype(np.int32)
+        nextX = np.maximum(np.minimum(nextX, w - 1), 0).astype(np.int32)
+        cv2.line(mask, (startX, startY), (nextX, nextY), 1, brushWidth)
+        cv2.circle(mask, (startX, startY), brushWidth // 2, 2)
+        startY, startX = nextY, nextX
+    cv2.circle(mask, (startX, startY), brushWidth // 2, 2)
     return mask

@@ -17,7 +17,7 @@ model:
     scale_factor: 0.18215
     use_ema: False
     finetune_keys: null
-    ckpt_path: ../stable-diffusion/models/ldm/text2img-large/model.ckpt
+    # ckpt_path: ../stable-diffusion/models/ldm/text2img-large/model.ckpt
 
     scheduler_config: # 10000 warmup steps
       target: ldm.lr_scheduler.LambdaLinearScheduler
@@ -42,7 +42,7 @@ model:
         num_heads: 8
         use_spatial_transformer: True
         transformer_depth: 1
-        context_dim: 512 # Note: Modify this if the context dim is changed
+        context_dim: 1024 # Note: Modify this if the context dim is changed
         use_checkpoint: True
         legacy: False
 
@@ -72,7 +72,7 @@ model:
         # Comment if not restoring from checkpoint.
         # ckpt_path: checkpoints/stable-diffusion-v-1-4-original/sd-v1-4-first_stage.ckpt
 
-    # # CLIP image-conditioned model (context_dim: ViT-B/XX: 512; ViT-L/XX : 768)
+    # CLIP image-conditioned model (context_dim: ViT-B/XX: 512; ViT-L/XX : 768)
     # cond_stage_config:
     #   target: ldm.modules.encoders.modules.FrozenClipImageEmbedder
     #   params:
@@ -83,7 +83,7 @@ model:
     cond_stage_config:
       target: ldm.modules.encoders.modules.FacenetPyTorchImageEmbedder
       params:
-        pretrained: vggface2
+        pretrained: vggface2+casia-webface
 
 
 data:
@@ -106,20 +106,34 @@ data:
         random_crop: True
         random_crop_scale: [0.9, 1.0]
 
+    validation:
+      target: ldm.data.custom.ImageCaptioningDataset
+      params:
+        inpaint_task: True
+        annotations_csv_file: null
+        # image_root: ../datasets/stickers
+        image_root: ../datasets/face_validation
+        # image_root: ../datasets/stickers
+        repeats: 1
+        size: 256
+        hflip: True
+        random_crop: True
+        random_crop_scale: [0.9, 1.0]
+
 lightning:
   callbacks:
     image_logger:
       target: main.ImageLogger
       params:
-        batch_frequency: 1000
+        batch_frequency: 500
         max_images: 8
         increase_log_steps: False
 
-    # metrics_over_trainsteps_checkpoint:
-    #   params:
-    #     monitor: "val/rec_loss"
-    #     every_n_train_steps: 2000
-    #     save_top_k: 3
+    metrics_over_trainsteps_checkpoint:
+      params:
+        monitor: "val/loss"
+        every_n_train_steps: 2000
+        save_top_k: 3
 
   # logger:
   #   target: pytorch_lightning.loggers.WandbLogger
@@ -128,5 +142,6 @@ lightning:
 
   trainer:
     benchmark: True
-    accumulate_grad_batches: 4
+    accumulate_grad_batches: 1
+    val_check_interval: 2000
     # precision: 16
