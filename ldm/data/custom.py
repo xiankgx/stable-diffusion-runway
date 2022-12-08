@@ -1,17 +1,20 @@
+from PIL import ImageFile
 import glob
 import os
 
+import braceexpand
 import numpy as np
 import pandas as pd
 import webdataset as wds
-from ldm.data.base import Txt2ImgIterableBaseDataset
 from PIL import Image
+from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms
 
-import braceexpand
+from ldm.data.base import Txt2ImgIterableBaseDataset
 
 Image.MAX_IMAGE_PIXELS = None
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ImageCaptioningDataset(Dataset):
@@ -116,7 +119,7 @@ class ImageCaptioningDataset(Dataset):
 
             data["mask"] = mask
             data["masked_image"] = masked_image
-        
+
         return data
 
 
@@ -150,7 +153,7 @@ class WebdatasetImageCaptionDataset(IterableDataset):
 
         ds = wds.WebDataset(
             self.urls,
-            # nodesplitter=wds.split_by_node,
+            nodesplitter=wds.split_by_node,
             shardshuffle=True,
             handler=wds.handlers.warn_and_continue,
             verbose=True
@@ -209,6 +212,112 @@ class WebdatasetImageCaptionDataset(IterableDataset):
 
     def __iter__(self):
         return iter(self.ds)
+
+
+class WebDatasetImageCaptioningLightningDataModule(LightningDataModule):
+
+    def __init__(
+        self,
+        urls,
+        num_records=None,
+
+        val_size=200,
+        batch_size: int = 4,
+        num_workers: int = 8,
+
+        size=512,
+        # Image augmentations
+        hflip=True,
+        random_crop=True,
+        random_crop_scale=(0.5, 1.0)
+    ):
+        super().__init__()
+
+        urls = list(map(lambda p: braceexpand.braceexpand(p), urls))
+        urls = [el for l in urls for el in l]
+        self.urls = urls
+
+        self.num_records = num_records if num_records is not None \
+            else len(urls) * 10_000
+
+        self.size = size
+        self.val_size = val_size
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+        self.hflip = hflip
+        self.random_crop = random_crop
+        self.random_crop_scale = random_crop_scale
+
+    def transform(self, d):
+        # Get data
+        img = d["jpg"]
+        caption = d["json"]["caption"]
+        key = d["__key__"]
+
+        size = self.size
+        size = (size, size) if not isinstance(size, (list, tuple)) else size
+
+        flip = [transforms.RandomHorizontalFlip(p=0.5), ] if self.hflip else []
+        crop = [
+            transforms.RandomResizedCrop(
+                size=size,
+                scale=self.random_crop_scale,
+                interpolation=transforms.InterpolationMode.BICUBIC
+            )
+        ] if self.random_crop else [transforms.Resize(size, interpolation=transforms.InterpolationMode.BICUBIC), ]
+
+        transform = transforms.Compose(
+            flip + crop
+        )
+
+        # Apply transforms
+        img = transform(img)
+        # PIL to np array
+        img = np.array(img)
+        # Normalize [0, 255] -> [-1, 1]
+        img = ((img / np.float32(255)) - 0.5) * 2
+
+        return {
+            "key": key,
+            "image": img,
+            "caption": caption
+        }
+
+    def train_dataloader(self):
+        dataset = wds.WebDataset(
+            self.urls,
+            # nodesplitter=wds.split_by_node,
+            shardshuffle=True,
+            handler=wds.handlers.warn_and_continue,
+            verbose=True
+        ) \
+            .shuffle(1000) \
+            .decode("pil") \
+            .map(self.transform) \
+            .batched(self.batch_size, partial=False)
+
+        loader = wds.WebLoader(dataset, num_workers=self.num_workers)
+        loader = loader.repeat(2).set_length(self.num_records)
+        return loader
+
+    def val_dataloader(self):
+        num_records = self.val_size if isinstance(self.val_size, int) \
+            else int(self.val_size * self.num_records)
+
+        dataset = wds.WebDataset(
+            self.urls,
+            # nodesplitter=wds.split_by_node,
+            handler=wds.handlers.warn_and_continue,
+            verbose=True
+        ) \
+            .decode("pil") \
+            .map(self.transform) \
+            .batched(self.batch_size, partial=False)
+
+        loader = wds.WebLoader(dataset, num_workers=self.num_workers)
+        loader = loader.repeat(2).set_length(num_records)
+        return loader
 
 
 def generate_rectangular_mask(im_size, min_height=0.25, max_height=0.5, min_width=0.25, max_width=0.5, channels=1, invert_mask=True):
