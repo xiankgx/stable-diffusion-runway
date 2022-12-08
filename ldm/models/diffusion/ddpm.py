@@ -29,6 +29,13 @@ from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_t
 from ldm.models.diffusion.ddim import DDIMSampler
 
 
+try:
+    import bitsandbytes as bnb
+    BNB_INSTALLED = True
+except ImportError:
+    BNB_INSTALLED = False
+    print("bitsandbytes not installed.")
+
 __conditioning_keys__ = {'concat': 'c_concat',
                          'crossattn': 'c_crossattn',
                          'adm': 'y'}
@@ -74,6 +81,7 @@ class DDPM(pl.LightningModule):
                  use_positional_encodings=False,
                  learn_logvar=False,
                  logvar_init=0.,
+                 use_8bit_adam_optimizer=True,
                  ):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
@@ -115,6 +123,8 @@ class DDPM(pl.LightningModule):
         self.logvar = torch.full(fill_value=logvar_init, size=(self.num_timesteps,))
         if self.learn_logvar:
             self.logvar = nn.Parameter(self.logvar, requires_grad=True)
+
+        self.use_8bit_adam_optimizer = use_8bit_adam_optimizer
 
 
     def register_schedule(self, given_betas=None, beta_schedule="linear", timesteps=1000,
@@ -474,7 +484,11 @@ class DDPM(pl.LightningModule):
         params = list(self.model.parameters())
         if self.learn_logvar:
             params = params + [self.logvar]
-        opt = torch.optim.AdamW(params, lr=lr)
+        if BNB_INSTALLED and self.use_8bit_adam_optimizer:
+            opt = bnb.optim.Adam8bit(params, lr=lr)
+            print("Using 8-bit Adam optimizer")
+        else:
+            opt = torch.optim.AdamW(params, lr=lr)
         return opt
 
 
@@ -1449,7 +1463,11 @@ class LatentDiffusion(DDPM):
         if self.learn_logvar:
             print('Diffusion model optimizing logvar')
             params.append(self.logvar)
-        opt = torch.optim.AdamW(params, lr=lr)
+        if BNB_INSTALLED and self.use_8bit_adam_optimizer:
+            opt = bnb.optim.Adam8bit(params, lr=lr)
+            print("Using 8-bit Adam optimizer")
+        else:
+            opt = torch.optim.AdamW(params, lr=lr)
         if self.use_scheduler:
             assert 'target' in self.scheduler_config
             scheduler = instantiate_from_config(self.scheduler_config)
