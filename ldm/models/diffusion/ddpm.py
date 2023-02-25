@@ -200,7 +200,7 @@ class DDPM(pl.LightningModule):
     def init_from_ckpt(self, path, ignore_keys=list(), only_model=False):
         print(f"Restoring model from path: {path}")
 
-        sd = torch.load(path, map_location="cpu")
+        sd = torch.load(path, map_location="cuda")
         if "state_dict" in list(sd.keys()):
             sd = sd["state_dict"]
         keys = list(sd.keys())
@@ -485,8 +485,8 @@ class DDPM(pl.LightningModule):
         if self.learn_logvar:
             params = params + [self.logvar]
         if BNB_INSTALLED and self.use_8bit_adam_optimizer:
-            opt = bnb.optim.Adam8bit(params, lr=lr)
-            print("Using 8-bit Adam optimizer")
+            opt = bnb.optim.AdamW8bit(params, lr=lr)
+            print("Using 8-bit AdamW optimizer")
         else:
             opt = torch.optim.AdamW(params, lr=lr)
         return opt
@@ -1345,8 +1345,8 @@ class LatentDiffusion(DDPM):
 
     @torch.no_grad()
     def log_images(self, batch, N=8, n_row=4, sample=True, ddim_steps=200, ddim_eta=1., return_keys=None,
-                   quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
-                   plot_diffusion_rows=True, **kwargs):
+                   quantize_denoised=True, inpaint=False, plot_denoise_rows=False, plot_progressive_rows=False,
+                   plot_diffusion_rows=False, **kwargs):
 
         use_ddim = ddim_steps is not None
 
@@ -1464,8 +1464,8 @@ class LatentDiffusion(DDPM):
             print('Diffusion model optimizing logvar')
             params.append(self.logvar)
         if BNB_INSTALLED and self.use_8bit_adam_optimizer:
-            opt = bnb.optim.Adam8bit(params, lr=lr)
-            print("Using 8-bit Adam optimizer")
+            opt = bnb.optim.AdamW8bit(params, lr=lr)
+            print("Using 8-bit AdamW optimizer")
         else:
             opt = torch.optim.AdamW(params, lr=lr)
         if self.use_scheduler:

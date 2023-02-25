@@ -123,7 +123,7 @@ class ImageCaptioningDataset(Dataset):
         return data
 
 
-class WebdatasetImageCaptionDataset(IterableDataset):
+class WebdatasetImageCaptionDataset(Txt2ImgIterableBaseDataset):
 
     def __init__(
         self,
@@ -156,7 +156,8 @@ class WebdatasetImageCaptionDataset(IterableDataset):
             nodesplitter=wds.split_by_node,
             shardshuffle=True,
             handler=wds.handlers.warn_and_continue,
-            verbose=True
+            verbose=True,
+            resampled=True
         )
         if self.shuffle:
             ds = ds.shuffle(self.shuffle)
@@ -189,7 +190,8 @@ class WebdatasetImageCaptionDataset(IterableDataset):
             transforms.RandomResizedCrop(
                 size=size,
                 scale=self.random_crop_scale,
-                interpolation=transforms.InterpolationMode.BICUBIC
+                interpolation=transforms.InterpolationMode.BICUBIC,
+                ratio=(1.0, 1.0)
             )
         ] if self.random_crop else [transforms.Resize(size, interpolation=transforms.InterpolationMode.BICUBIC), ]
 
