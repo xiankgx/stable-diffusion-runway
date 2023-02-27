@@ -1346,8 +1346,8 @@ class LatentDiffusion(DDPM):
 
     @torch.no_grad()
     def log_images(self, batch, N=8, n_row=4, sample=True, ddim_steps=200, ddim_eta=1., return_keys=None,
-                   quantize_denoised=True, inpaint=True, plot_denoise_rows=False, plot_progressive_rows=True,
-                   plot_diffusion_rows=True, **kwargs):
+                   quantize_denoised=True, inpaint=False, plot_denoise_rows=False, plot_progressive_rows=False,
+                   plot_diffusion_rows=False, **kwargs):
 
         use_ddim = ddim_steps is not None
 
@@ -1420,22 +1420,22 @@ class LatentDiffusion(DDPM):
 
             if inpaint:
                 # make a simple center square
-                # b, h, w = z.shape[0], z.shape[2], z.shape[3]
-                # mask = torch.ones(N, h, w).to(self.device)
-                # # zeros will be filled in
-                # mask[:, h // 4:3 * h // 4, w // 4:3 * w // 4] = 0.
-                # mask = mask[:, None, ...]
+                b, h, w = z.shape[0], z.shape[2], z.shape[3]
+                mask = torch.ones(N, h, w).to(self.device)
+                # zeros will be filled in
+                mask[:, h // 4:3 * h // 4, w // 4:3 * w // 4] = 0.
+                mask = mask[:, None, ...]
 
-                b = z.shape[0]
-                mask = [
-                    (generate_circular_mask((self.image_size, self.image_size), min_radius=0.125, max_radius=0.5, x=0.5, y=0.5) if np.random.rand() < 0.5
-                    else generate_rectangular_mask((self.image_size, self.image_size), min_height=0.25, max_height=0.9, min_width=0.25, max_width=0.9, x=0.5, y=0.5, center=True))
-                    for _ in range(b)
-                ]
-                mask = np.stack(mask, axis=0)
-                mask = torch.from_numpy(mask).to(self.device)
-                mask = mask.permute(0, 3, 1, 2)
-                mask = torch.nn.functional.interpolate(mask, (z.shape[2], z.shape[3]))
+                # b = z.shape[0]
+                # mask = [
+                #     (generate_circular_mask((self.image_size, self.image_size), min_radius=0.125, max_radius=0.5, x=0.5, y=0.5) if np.random.rand() < 0.5
+                #     else generate_rectangular_mask((self.image_size, self.image_size), min_height=0.25, max_height=0.9, min_width=0.25, max_width=0.9, x=0.5, y=0.5, center=True))
+                #     for _ in range(b)
+                # ]
+                # mask = np.stack(mask, axis=0)
+                # mask = torch.from_numpy(mask).to(self.device)
+                # mask = mask.permute(0, 3, 1, 2)
+                # mask = torch.nn.functional.interpolate(mask, (z.shape[2], z.shape[3]))
 
                 with self.ema_scope("Plotting Inpaint"):
 

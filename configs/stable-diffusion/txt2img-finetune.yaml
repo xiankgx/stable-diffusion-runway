@@ -9,7 +9,7 @@ model:
     timesteps: 1000
     first_stage_key: "image"
     cond_stage_key: "caption"
-    image_size: 32 # Note: make sure this is image size // (2 ** (len(first_stage_model.params.ch_mult) - 1))
+    image_size: 64 # Note: make sure this is image size // (2 ** (len(first_stage_model.params.ch_mult) - 1))
     channels: 4
     cond_stage_trainable: false # Note: Whether to unfreeze the conditional model for training
     conditioning_key: crossattn
@@ -24,7 +24,7 @@ model:
       params:
         warm_up_steps: [10000]
         cycle_lengths: [10000000000000] # incredibly large number to prevent corner cases
-        f_start: [1.e-7]
+        f_start: [1.e-6]
         f_max: [1.]
         f_min: [1.]
 
@@ -78,21 +78,42 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 8
+    batch_size: 6 # XXX RTX 3090: 8 OOM with batch size 4 image logging
     wrap: False
 
     train:
-      target: ldm.data.custom.ImageCaptioningDataset
+      # target: ldm.data.custom.ImageCaptioningDataset
+      # params:
+      #   annotations_csv_file: null
+      #   # image_root: ../datasets/stickers
+      #   image_root: ../datasets/pngaaa_stickers_rgb
+      #   repeats: 1
+      #   # size: 512 # XXX Fails even on 24G GPU and batch_size=1
+      #   size: 256 # XXX batch_size=4 ok, batch_size=6 ok
+      #   hflip: True
+      #   random_crop: True
+      #   random_crop_scale: [0.8, 1.0]
+
+      # XXX huggingface datasets to be consistent with huggingface diffusers training
+      # target: ldm.data.hf_datasets.get_dataset
+      # params:
+      #   dataset_name: lambdalabs/pokemon-blip-captions
+      #   resolution: 512
+      #   center_crop: False
+      #   random_flip: False
+      #   image_column: image
+      #   text_column: text
+      #   text_output_key: caption
+      target: ldm.data.hf_datasets.get_dataset
       params:
-        annotations_csv_file: null
-        # image_root: ../datasets/stickers
-        image_root: ../datasets/pngaaa_stickers_rgb
-        repeats: 1
-        # size: 512 # XXX Fails even on 24G GPU and batch_size=1
-        size: 256 # XXX batch_size=4 ok, batch_size=6 ok
-        hflip: True
-        random_crop: True
-        random_crop_scale: [0.8, 1.0]
+        # dataset_name: lambdalabs/pokemon-blip-captions
+        train_data_dir: <DATASET_FOLDER_PATH>
+        resolution: 512
+        center_crop: False
+        random_flip: False
+        image_column: image
+        text_column: text
+        text_output_key: caption
 
 lightning:
   callbacks:
@@ -100,7 +121,7 @@ lightning:
       target: main.ImageLogger
       params:
         batch_frequency: 500
-        max_images: 8
+        max_images: 4
         increase_log_steps: False
 
     # metrics_over_trainsteps_checkpoint:
@@ -117,4 +138,4 @@ lightning:
   trainer:
     benchmark: True
     accumulate_grad_batches: 4
-    # precision: 16
+    # precision: 16  # XXX Doesn't work
