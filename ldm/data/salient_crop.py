@@ -408,7 +408,7 @@ class SaliencyRandomCrop:
         width: int = 512,
         sal_threshold: int = 127,
         p_sal_crop: float = 0.5,
-        checkpoint_path="TranSalNet_Res.pth",
+        checkpoint_path="TranSalNet_Res.pth",  # https://drive.google.com/file/d/14czAAQQcRLGeiddPOM6AaTJTieu6QiHy/view?usp=sharing or s3://gx-stuffs/stable-diffusion/checkpoints/TranSalNet_Res.pth
         device="cpu",
     ) -> None:
         self.crop = albu.CropNonEmptyMaskIfExists(height=height, width=width)
