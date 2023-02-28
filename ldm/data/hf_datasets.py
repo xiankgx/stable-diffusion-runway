@@ -1,9 +1,34 @@
 import os
+from functools import partial
 
 import numpy as np
 from datasets import load_dataset
 from torch.utils.data import Dataset
 from torchvision import transforms
+
+from ldm.data.salient_crop import SaliencyRandomCrop
+
+
+def preprocess_train(
+    examples,
+    train_transforms,
+    image_column,
+    text_column,
+    image_output_key,
+    text_output_key,
+):
+    images = [image.convert("RGB") for image in examples[image_column]]
+    examples[image_output_key] = [train_transforms(image) for image in images]
+    examples[text_output_key] = [text for text in examples[text_column]]
+    return examples
+
+
+def identity(x):
+    return x
+
+
+def normalize(img):
+    return (np.asarray(img) / np.float32(255) - 0.5) * 2
 
 
 def get_dataset(
@@ -45,24 +70,25 @@ def get_dataset(
             ),
             transforms.CenterCrop(resolution)
             if center_crop
-            else transforms.RandomCrop(resolution),
+            else SaliencyRandomCrop(height=resolution, width=resolution, device="cpu"),
             transforms.RandomHorizontalFlip()
             if random_flip
-            else transforms.Lambda(lambda x: x),
+            else transforms.Lambda(identity),
             # transforms.ToTensor(),
             # transforms.Normalize([0.5], [0.5]),
-            transforms.Lambda(
-                lambda img: (np.asarray(img) / np.float32(255) - 0.5) * 2
-            ),
+            transforms.Lambda(normalize),
         ]
     )
 
-    def preprocess_train(examples):
-        images = [image.convert("RGB") for image in examples[image_column]]
-        examples[image_output_key] = [train_transforms(image) for image in images]
-        examples[text_output_key] = [text for text in examples[text_column]]
-        return examples
-
-    train_dataset = dataset["train"].with_transform(preprocess_train)
+    train_dataset = dataset["train"].with_transform(
+        partial(
+            preprocess_train,
+            train_transforms=train_transforms,
+            image_column=image_column,
+            text_column=text_column,
+            image_output_key=image_output_key,
+            text_output_key=text_output_key,
+        )
+    )
 
     return train_dataset
